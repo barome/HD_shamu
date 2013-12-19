@@ -35,10 +35,6 @@ MMUEXT		:= -nommu
 KBUILD_CFLAGS	+= $(call cc-option,-mno-unaligned-access)
 endif
 
-ifeq ($(CONFIG_CC_STACKPROTECTOR),y)
-KBUILD_CFLAGS	+=-fstack-protector
-endif
-
 ifeq ($(CONFIG_CPU_BIG_ENDIAN),y)
 KBUILD_CPPFLAGS	+= -mbig-endian
 AS		+= -EB
