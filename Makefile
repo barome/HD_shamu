@@ -588,6 +588,9 @@ KBUILD_CFLAGS   += $(call cc-disable-warning,maybe-uninitialized) -fno-inline-fu
 KBUILD_CFLAGS   += $(call cc-disable-warning,array-bounds) 
 endif
 
+# Tell gcc to never replace conditional load with a non-conditional one
+KBUILD_CFLAGS	+= $(call cc-option,--param=allow-store-data-races=0)
+
 include $(srctree)/arch/$(SRCARCH)/Makefile
 
 ifdef CONFIG_READABLE_ASM
