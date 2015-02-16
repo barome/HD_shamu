@@ -83,6 +83,12 @@ static unsigned int *target_loads = default_target_loads;
 static int ntarget_loads = ARRAY_SIZE(default_target_loads);
 
 /*
+ * Frequency calculation threshold.  Avoid freq oscillations up to this
+ * threshold and allow for dynamic changes above (default policy->min).
+ */
+static unsigned long freq_calc_thresh;
+
+/*
  * The minimum amount of time to spend at a frequency before we can ramp down.
  */
 #define DEFAULT_MIN_SAMPLE_TIME (80 * USEC_PER_MSEC)
@@ -131,6 +137,8 @@ static bool align_windows = true;
 static unsigned int max_freq_hysteresis;
 
 static bool io_is_busy;
+
+static bool use_freq_calc_thresh = true;
 
 #define DOWN_LOW_LOAD_THRESHOLD 5
 
@@ -415,7 +423,10 @@ static void cpufreq_interactive_timer(unsigned long data)
 			} else
 				new_freq = hispeed_freq;
 		} else {
-			new_freq = choose_freq(pcpu, loadadjfreq);
+			if (use_freq_calc_thresh && new_freq > freq_calc_thresh)
+				new_freq = pcpu->policy->max * cpu_load / 100;
+			else
+				new_freq = choose_freq(pcpu, loadadjfreq);
 
 			if (new_freq < hispeed_freq)
 				new_freq = hispeed_freq;
@@ -423,7 +434,10 @@ static void cpufreq_interactive_timer(unsigned long data)
 	} else if (cpu_load <= DOWN_LOW_LOAD_THRESHOLD) {
 		new_freq = pcpu->policy->cpuinfo.min_freq;
 	} else {
-		new_freq = choose_freq(pcpu, loadadjfreq);
+		if (use_freq_calc_thresh && new_freq > freq_calc_thresh)
+				new_freq = pcpu->policy->max * cpu_load / 100;
+			else
+				new_freq = choose_freq(pcpu, loadadjfreq);
 	}
 
 	if (boosted) {
@@ -447,7 +461,10 @@ static void cpufreq_interactive_timer(unsigned long data)
 
 	pcpu->local_hvtime = now;
 
-	if (cpufreq_frequency_table_target(pcpu->policy, pcpu->freq_table,
+	if (use_freq_calc_thresh && cpufreq_frequency_table_target(pcpu->policy, pcpu->freq_table,
+					   new_freq, CPUFREQ_RELATION_H,
+					   &index)) {
+	} else if (cpufreq_frequency_table_target(pcpu->policy, pcpu->freq_table,
 					   new_freq, CPUFREQ_RELATION_L,
 					   &index)) {
 		spin_unlock_irqrestore(&pcpu->target_freq_lock, flags);
@@ -864,6 +881,50 @@ static struct global_attr target_loads_attr =
 	__ATTR(target_loads, S_IRUGO | S_IWUSR,
 		show_target_loads, store_target_loads);
 
+static ssize_t show_freq_calc_thresh(struct kobject *kobj,
+				     struct attribute *attr, char *buf)
+{
+	return sprintf(buf, "%lu\n", freq_calc_thresh);
+}
+
+static ssize_t store_freq_calc_thresh(struct kobject *kobj,
+			struct attribute *attr, const char *buf, size_t count)
+{
+	int ret;
+	unsigned long val;
+
+	ret = strict_strtoul(buf, 0, &val);
+	if (ret < 0)
+		return ret;
+	freq_calc_thresh = val;
+	return count;
+}
+
+static struct global_attr freq_calc_thresh_attr = __ATTR(freq_calc_thresh, 0644,
+		show_freq_calc_thresh, store_freq_calc_thresh);
+
+static ssize_t show_use_freq_calc_thresh(struct kobject *kobj,
+			struct attribute *attr, char *buf)
+{
+	return sprintf(buf, "%u\n", use_freq_calc_thresh);
+}
+
+static ssize_t store_use_freq_calc_thresh(struct kobject *kobj,
+			struct attribute *attr, const char *buf, size_t count)
+{
+	int ret;
+	unsigned long val;
+
+	ret = kstrtoul(buf, 0, &val);
+	if (ret < 0)
+		return ret;
+	use_freq_calc_thresh = val;
+	return count;
+}
+
+static struct global_attr use_freq_calc_thresh_attr = __ATTR(use_freq_calc_thresh, 0644,
+		show_use_freq_calc_thresh, store_use_freq_calc_thresh);
+
 static ssize_t show_above_hispeed_delay(
 	struct kobject *kobj, struct attribute *attr, char *buf)
 {
@@ -1157,6 +1218,7 @@ static struct global_attr input_boost_freq_attr = __ATTR(input_boost_freq, 0644,
 
 static struct attribute *interactive_attributes[] = {
 	&target_loads_attr.attr,
+	&freq_calc_thresh_attr.attr,
 	&above_hispeed_delay_attr.attr,
 	&hispeed_freq_attr.attr,
 	&go_hispeed_load_attr.attr,
@@ -1170,6 +1232,7 @@ static struct attribute *interactive_attributes[] = {
 	&align_windows_attr.attr,
 	&input_boost_freq_attr.attr,
 	&two_phase_freq_attr.attr,
+	&use_freq_calc_thresh_attr.attr,
 	NULL,
 };
 
@@ -1218,6 +1281,7 @@ static int cpufreq_governor_interactive(struct cpufreq_policy *policy,
 			cpufreq_frequency_get_table(policy->cpu);
 		if (!hispeed_freq)
 			hispeed_freq = policy->max;
+		freq_calc_thresh = policy->min;
 
 		for_each_cpu(j, policy->cpus) {
 			pcpu = &per_cpu(cpuinfo, j);
