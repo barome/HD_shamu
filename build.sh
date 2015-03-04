@@ -15,7 +15,7 @@ DEFCONFIG="hells_defconfig"
 
 # Kernel Details
 BASE_HC_VER="hC"
-VER="-Alpha-2.5.1-bricked"
+VER="-Alpha-2.5.2-bricked"
 HC_VER="$BASE_HC_VER$VER"
 
 # Vars
