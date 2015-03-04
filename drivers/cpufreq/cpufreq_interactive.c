@@ -411,6 +411,8 @@ static void cpufreq_interactive_timer(unsigned long data)
 	loadadjfreq = (unsigned int)cputime_speedadj * 100;
 	cpu_load = loadadjfreq / pcpu->policy->cur;
 	boosted = boost_val || now < boostpulse_endtime;
+	if (check_cpuboost(data))
+		boosted = false;
 	this_hispeed_freq = max(hispeed_freq, pcpu->policy->min);
 
 	if (counter < 5) {
